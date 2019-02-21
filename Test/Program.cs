@@ -6,12 +6,73 @@ using System.Threading.Tasks;
 
 namespace Test
 {
-    // goal function: return true means goal accomplished
-    public delegate bool GoalFunc<T>(Domain domain, T param);
-    // rule function
-    public delegate TResult RuleFunc<TResult>(Domain domain);
-    // action function: return true means action succeeded
-    public delegate bool ActionFunc<T, TResult>(Domain domain, Goal<T> goal, Rule<TResult> rule, T param);
+    // Goal function:
+    //   in an area, give a param, return if the goal is accomplished
+    public delegate bool GoalFunc<TArea, T>(TArea area, T param);
+
+    // Rule function:
+    //   define a rule in an area, 
+    //   the rule output is a result
+    public delegate TResult RuleFunc<TArea, TResult>(TArea area);
+
+    // Action function: 
+    //   In an area, take an action according to the given goal and rule
+    //   return true means action succeeded (or goal accomplished)
+    public delegate bool ActionFunc<TArea, T, TResult>(
+        TArea area, 
+        Goal<TArea, T> goal, 
+        Rule<TArea, TResult> rule);
+
+    public class Goal<TArea, T>
+    {
+        public string Name { get; set; }
+        public GoalFunc<TArea, T> Content { get; set; }
+
+        public Goal(string name, GoalFunc<TArea, T> gf)
+        {
+            Name = name;
+            Content = gf;
+        }
+
+        public bool IsAccomplished(TArea area, T param)
+        {
+            return Content(area, param);
+        }
+    }
+
+    public class Rule<TArea, TResult>
+    {
+        public string Name { get; set; }
+        public RuleFunc<TArea, TResult> Content { get; set; }
+
+        public Rule(string name, RuleFunc<TArea, TResult> rf)
+        {
+            Name = name;
+            Content = rf;
+        }
+
+        public TResult Apply(TArea area)
+        {
+            return Content(area);
+        }
+    }
+
+    public class Action<TArea, T, TResult>
+    {
+        public string Name { get; set; }
+        public ActionFunc<TArea, T, TResult> Content { get; set; }
+
+        public Action(string name, ActionFunc<TArea, T, TResult> af)
+        {
+            Name = name;
+            Content = af;
+        }
+
+        public bool Execute(TArea area, Goal<TArea, T> goal, Rule<TArea, TResult> rule)
+        {
+            return Content(area, goal, rule);
+        }
+    }
 
     public class Domain
     {
@@ -23,84 +84,41 @@ namespace Test
         }
     }
 
-    public class Goal<T>
+    public class DomainGoals
     {
-        public string Name { get; set; }
-        public GoalFunc<T> Content { get; set; }
-
-        // A goal: if domain.Records contain lxj, goal accomplished.
-        public static GoalFunc<T> GF_FindLxj = (domain, param) =>
+         // A goal: if domain.Records contain lxj, goal accomplished.
+        public static bool GF_FindLxj(Domain domain, string param)
         {
             return domain.Records.Any(r => r == "lxj");
-        };
-
-        public Goal(string name, GoalFunc<T> gf)
-        {
-            Name = name;
-            Content = gf;
-        }
-
-        public bool IsAccomplished(Domain domain, T param)
-        {
-            bool result = Content(domain, param);
-            return result;
         }
     }
 
-    public class Rule<TResult>
+    public class DomainRules
     {
-        public string Name { get; set; }
-        public RuleFunc<TResult> Content { get; set; }
-
         // A rule: input a string from console
-        public static RuleFunc<string> RF_InputString = (domain) =>
+        public static string RF_InputString(Domain domain)
         {
             string s = Console.ReadLine();
             domain.Records.Add(s);
             return s;
-        };
-
-        public Rule(string name, RuleFunc<TResult> rf)
-        {
-            Name = name;
-            Content = rf;
-        }
-
-        public TResult Apply(Domain domain)
-        {
-            return Content(domain);
         }
     }
 
-    public class Action<T, TResult>
+    public class DomainActions
     {
-        public string Name { get; set; }
-        public ActionFunc<T, TResult> Content { get; set; }
-        public Rule<TResult> Rule { get; set; }
-        public Goal<T> Goal { get; set; }
-
-        // An action: execute rule action
-        public static ActionFunc<string, string> AF_ExecuteRule = (domain, goal, rule, param) =>
+        // An action: execute the rule until the goal is accomplished.
+        public static bool AF_ExecuteRule(Domain domain, 
+            Goal<Domain, string> goal,
+            Rule<Domain, string> rule)
         {
+            string param = "";
             while (!goal.IsAccomplished(domain, param))
             {
                 Console.WriteLine("Input string:");
-                string s = rule.Apply(domain);
-                param = s;
+                param = rule.Apply(domain);
             }
             Console.WriteLine("Goal accomplished.");
             return true;
-        };
-
-        public Action(string name, ActionFunc<T, TResult> af)
-        {
-            Name = name;
-            Content = af;
-        }
-
-        public bool Execute(Domain domain, Goal<T> goal, Rule<TResult> rule, T param)
-        {
-            return Content(domain, goal, rule, param);
         }
     }
 
@@ -119,11 +137,14 @@ namespace Test
         static void Main(string[] args)
         {
             Domain domain = new Domain();
-            Goal<string> goal = new Goal<string>("Find lxj", Goal<string>.GF_FindLxj);
-            Rule<string> rule = new Rule<string>("Input string", Rule<string>.RF_InputString);
-            Action<string, string> action = new Action<string, string>("test action", Action<string, string>.AF_ExecuteRule);
+            Goal<Domain, string> goal = 
+                new Goal<Domain, string>("Find lxj", DomainGoals.GF_FindLxj);
+            Rule<Domain, string> rule = 
+                new Rule<Domain, string>("Input string", DomainRules.RF_InputString);
+            Action<Domain, string, string> action = 
+                new Action<Domain, string, string>("test action", DomainActions.AF_ExecuteRule);
 
-            action.Execute(domain, goal, rule, "");
+            action.Execute(domain, goal, rule);
 
             Console.ReadLine();
         }
