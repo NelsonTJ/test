@@ -6,6 +6,31 @@ using System.Threading.Tasks;
 
 namespace Test
 {
+    /*
+     * Spatial related goals
+     * Goal: CheckGRPDataAt(K)
+     * Rule: K - Kn <= 20m
+     * Action: 
+     *   if Rule OK, return GRPDataAt(Kn);
+     *   else request new GRP data
+     *   
+     * Goal: CheckExcvationFaceLocation()
+     * Rule: CurrentDate - LastRecordDate <= 1
+     * Action:
+     *   if Rule is OK, return last record location
+     *   else request new locaton data
+     * 
+     * Goal: CheckGeologicalSketchData(K)
+     * Rule: if (RockClass==3)  K - Kn <= 10m,  if (RockClass==4) ....
+     * Action:
+     *   if Rule is OK, return last record location
+     *   else request new data
+     * 
+     */
+
+
+
+
     // Goal function:
     //   in an area, give a param, return if the goal is accomplished
     public delegate bool GoalFunc<TArea, T>(TArea area, T param);
@@ -102,11 +127,30 @@ namespace Test
             domain.Records.Add(s);
             return s;
         }
+
+        public static double RF_Distance()
+        {
+            return 1.0;
+        }
     }
 
     public class DomainActions
     {
-        // An action: execute the rule until the goal is accomplished.
+        // Execute the action until the goal is accomplished.
+        public static bool AF_Excute(Domain domain,
+            Goal<Domain, string> goal)
+        {
+            string param = "";
+            while (!goal.IsAccomplished(domain, param))
+            {
+                Console.WriteLine("Input string:");
+                param = Console.ReadLine();
+            }
+            Console.WriteLine("Goal accomplished.");
+            return true;
+        }
+
+        // Execute the action with the rule until the goal is accomplished.
         public static bool AF_ExecuteRule(Domain domain, 
             Goal<Domain, string> goal,
             Rule<Domain, string> rule)
@@ -120,6 +164,7 @@ namespace Test
             Console.WriteLine("Goal accomplished.");
             return true;
         }
+
     }
 
     public class DigitalTwin<TRuleResult>
@@ -142,7 +187,7 @@ namespace Test
             Rule<Domain, string> rule = 
                 new Rule<Domain, string>("Input string", DomainRules.RF_InputString);
             Action<Domain, string, string> action = 
-                new Action<Domain, string, string>("test action", DomainActions.AF_ExecuteRule);
+                new Action<Domain, string, string>("test action", DomainActions.AF_Excute);
 
             action.Execute(domain, goal, rule);
 
