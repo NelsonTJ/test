@@ -33,106 +33,99 @@ namespace Test
 
     // Goal function:
     //   In an area, give a param, return if the goal is accomplished
-    public delegate bool GoalFunc<TArea, T>(TArea area, T param);
+    public delegate bool GoalFunc(object area);
 
     // Rule function:
     //   Define a rule in an area,  input a param, output a result.
-    public delegate TResult RuleFunc<TArea, T, TResult>(TArea area, T param);
+    public delegate object RuleFunc(object area);
 
     // Action function: 
     //   In an area, given a param (usually a output from rule), take an action.
-    public delegate void ActionFunc<TArea, T>(TArea area, T param);
+    public delegate void ActionFunc(object area, object param);
 
-    public class Goal<TArea, T>
-    {
-        public string Name { get; set; }
-        public GoalFunc<TArea, T> Content { get; set; }
-
-        public Goal(string name, GoalFunc<TArea, T> gf)
-        {
-            Name = name;
-            Content = gf;
-        }
-
-        public bool IsAccomplished(TArea area, T param)
-        {
-            return Content(area, param);
-        }
-    }
-
-    public class Rule<TArea, T, TResult>
-    {
-        public string Name { get; set; }
-        public RuleFunc<TArea, T, TResult> Content { get; set; }
-
-        public Rule(string name, RuleFunc<TArea, T, TResult> rf)
-        {
-            Name = name;
-            Content = rf;
-        }
-
-        public TResult Apply(TArea area, T param)
-        {
-            return Content(area, param);
-        }
-    }
-
-    public class Action<TArea, T>
-    {
-        public string Name { get; set; }
-        public ActionFunc<TArea, T> Content { get; set; }
-
-        public Action(string name, ActionFunc<TArea, T> af)
-        {
-            Name = name;
-            Content = af;
-        }
-
-        public void Execute(TArea area, T param)
-        {
-            Content(area, param);
-        }
-    }
-
-    // GRA: Goal-Rule-Action
-    //   TArea: Area type
-    //   T: Input param type
-    public abstract class GRA<TArea, T>
-    {
-        public virtual void Run(TArea area, T param) { }
-    }
 
     // GRA: Goal-Rule-Action
     //   TArea: Area type
     //   T: Input param type
     //   TResult: rule ouput type
-    public class GRA<TArea, T, TResult> : GRA<TArea, T>
+    public class GRA
     {
-        public Goal<TArea, T> Goal { get; set; }
-        public Rule<TArea, T, TResult> Rule { get; set; }
-        public Action<TArea, TResult> Action { get; set; }
+        public GoalFunc GoalFunc { get; set; }
+        public RuleFunc RuleFunc { get; set; }
+        public ActionFunc ActionFunc { get; set; }
+        public TimeSpan Span { get; set; }
+        public TimeSpan WaitedTime { get; set; }
+        public string RuleDesc { get; set; }
 
-        public GRA(Goal<TArea, T> goal,
-            Rule<TArea, T, TResult> rule,
-            Action<TArea, TResult> action)
+        public bool IsGoalAccomplished { get; set; }
+
+        public GRA(GoalFunc gf, RuleFunc rf, ActionFunc af, TimeSpan span)
         {
-            Goal = goal;
-            Rule = rule;
-            Action = action;
+            GoalFunc = gf;
+            RuleFunc = rf;
+            ActionFunc = af;
+
+            Span = span;
+            WaitedTime = span;
+        }
+        public virtual void Execute(object area)
+        {
+            if (GoalFunc != null)
+                IsGoalAccomplished = GoalFunc(area);
+
+            if (!IsGoalAccomplished)
+            {
+                object result = null;
+                if (RuleFunc != null)
+                    result = RuleFunc(area);
+                if (ActionFunc != null)
+                    ActionFunc(area, result);
+            }
+        }
+    }
+
+    // digital twin
+    //   1: Dynamic management
+    //   2: Specialized management
+    //   3: Emergency management
+    //   
+    public class DigitalTwin
+    {
+        public ICollection<GRA> GRAs { get; set; }
+        public bool Exit { get; set; }
+        public object Area { get; set; }
+
+        public DigitalTwin(object area)
+        {
+            GRAs = new List<GRA>();
+            Area = area;
         }
 
-        public override void Run(TArea area, T param)
+        public void Run()
         {
-            if (Goal == null)
-                return;
-            TResult result = default(TResult);
+            DateTime lastTime = new DateTime();
+            DateTime curTime = new DateTime();
+            lastTime = DateTime.Now;
 
-            while (!Goal.IsAccomplished(area, param))
+            while (Exit == false)
             {
-                if (Rule != null)
-                    result = Rule.Apply(area, param);
-                if (Action != null)
-                    Action.Execute(area, result);
+                curTime = DateTime.Now;
+                TimeSpan span = curTime - lastTime;
+
+                foreach (GRA gra in GRAs)
+                {
+                    if (!gra.IsGoalAccomplished)
+                    {
+                        gra.WaitedTime += span;
+                        if (gra.WaitedTime >= gra.Span)
+                        {
+                            gra.Execute(Area);
+                            gra.WaitedTime = TimeSpan.Zero;
+                        }
+                    }
+                }
+
+                lastTime = curTime;
             }
         }
     }
@@ -150,8 +143,12 @@ namespace Test
     public class DomainGoals
     {
          // A goal: if domain.Records contain lxj, goal accomplished.
-        public static bool GF_FindLxj(Domain domain, string param)
+        public static bool GF_FindLxj(object area)
         {
+            Domain domain = area as Domain;
+            if (domain == null)
+                return false;
+
             return domain.Records.Any(r => r == "lxj");
         }
     }
@@ -164,8 +161,12 @@ namespace Test
     public class DomainActions
     {
         // Prompt to input a string.
-        public static void AF_InputStr(Domain domain, string param)
+        public static void AF_InputStr(object area, object param)
         {
+            Domain domain = area as Domain;
+            if (domain == null)
+                return;
+
             Console.WriteLine("Input string:");
             string str = Console.ReadLine();
             domain.Records.Add(str);
@@ -173,33 +174,18 @@ namespace Test
     }
     
 
-    // digital twin
-    //   1: Dynamic management
-    //   2: Specialized management
-    //   3: Emergency management
-    //   
-    public class DigitalTwin<TRuleResult>
-    {
-
-        public DigitalTwin()
-        {
-
-        }
-    }
 
     class Program
     {
         static void Main(string[] args)
         {
             Domain domain = new Domain();
-            Goal<Domain, string> goal = 
-                new Goal<Domain, string>("Find lxj", DomainGoals.GF_FindLxj);
-            Action<Domain, string> action = 
-                new Action<Domain, string>("test action", DomainActions.AF_InputStr);
+            DigitalTwin dt = new DigitalTwin(domain);
 
-            GRA<Domain, string> gra = new GRA<Domain, string, string>(goal, null, action);
-
-            gra.Run(domain, null);
+            GRA gra = new GRA(DomainGoals.GF_FindLxj, null,
+                DomainActions.AF_InputStr, new TimeSpan(0,0,10));
+            dt.GRAs.Add(gra);
+            dt.Run();
 
             Console.WriteLine("OK");
             Console.ReadLine();
