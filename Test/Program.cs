@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Test
@@ -44,43 +45,135 @@ namespace Test
     public delegate void ActionFunc(object area, object param);
 
 
-    // GRA: Goal-Rule-Action
-    //   TArea: Area type
-    //   T: Input param type
-    //   TResult: rule ouput type
+    /// <summary>
+    /// GRA: Goal-Rule-Action.
+    ///   Execute the Goal, according to the Rule, take the Action.
+    ///   Goal, Rule and Action are given by functions
+    /// </summary>
     public class GRA
     {
+        // goal, rule and action functions
         public GoalFunc GoalFunc { get; set; }
         public RuleFunc RuleFunc { get; set; }
         public ActionFunc ActionFunc { get; set; }
+
+        // goal, rule and action descriptions
+        public string GoalDesc { get; set; }
+        public string RuleDesc { get; set; }
+        public string ActionDesc { get; set; }
+
+        // Span is the desired execution time span of the GRA if goal is not accomplished.
+        // WaitedTime is the time GRA has waited.
+        // If WaitedTime>=Span, then the GRA should be executed.
         public TimeSpan Span { get; set; }
         public TimeSpan WaitedTime { get; set; }
-        public string RuleDesc { get; set; }
 
+        // TryCount is the GRA has been executed before goal is accomplished.
+        // MaxTries is the maximum tries
+        // If TryCount >= MaxTries, the GRA will be aborted.
+        public int TryCount { get; set; }
+        public int MaxTries { get; set; }
+
+        // Indicated if the goal is accomplished, and if the goal is aborted.
         public bool IsGoalAccomplished { get; set; }
+        public bool Abort { get; set; }
 
         public GRA(GoalFunc gf, RuleFunc rf, ActionFunc af, TimeSpan span)
         {
             GoalFunc = gf;
             RuleFunc = rf;
             ActionFunc = af;
-
             Span = span;
-            WaitedTime = span;
-        }
-        public virtual void Execute(object area)
-        {
-            if (GoalFunc != null)
-                IsGoalAccomplished = GoalFunc(area);
+            MaxTries = int.MaxValue;
 
-            if (!IsGoalAccomplished)
+            Init();
+        }
+
+        protected void Init()
+        {
+            WaitedTime = Span;
+            TryCount = 0;
+            IsGoalAccomplished = false;
+            Abort = false;
+        }
+
+        public virtual void Execute(object area, TimeSpan span)
+        {
+            if (!IsGoalAccomplished && !Abort)
             {
+                WaitedTime += span;
+                if (WaitedTime < Span)
+                    return;
+
+                WaitedTime = TimeSpan.Zero;
+
+                if (GoalFunc != null)
+                {
+                    IsGoalAccomplished = GoalFunc(area);
+                    if (IsGoalAccomplished)
+                        return;
+                }
+
                 object result = null;
                 if (RuleFunc != null)
                     result = RuleFunc(area);
                 if (ActionFunc != null)
                     ActionFunc(area, result);
+
+                TryCount++;
+                if (TryCount >= MaxTries)
+                    Abort = true;
             }
+        }
+    }
+
+    /// <summary>
+    /// GRA_R: Repetitive GRA.
+    ///   Reset the GRA if the repeat time span is reached,
+    ///     no matter the status of the GRA (Abort, or not accomplished).
+    /// </summary>
+    public class GRA_R : GRA
+    {
+        // RepeatSpan is the desired repeat execution time span of the GRA.
+        // RepeatWaitedTime is the time GRA has waited.
+        // If RepeatWaitedTime>=RepeatSpan, then the GRA will be reset.
+        public TimeSpan RepeatSpan { get; set; }
+        public TimeSpan RepeatWaitedTime { get; set; }
+
+        // RepeatCount is the GRA has been repeated.
+        // MaxRepeatCount is the maximum repeated number.
+        // If RepeatCount >= MaxRepeatCount, the GRA will be aborted.
+        public int RepeatCount { get; set; }
+        public int MaxRepeatCount { get; set; }
+
+        public GRA_R(GoalFunc gf, RuleFunc rf, ActionFunc af, 
+            TimeSpan span, TimeSpan repeatSpan)
+            :base(gf, rf, af, span)
+        {
+            RepeatSpan = repeatSpan;
+            MaxRepeatCount = int.MaxValue;
+
+            RepeatWaitedTime = repeatSpan;
+            RepeatCount = 0;
+        }
+
+        public override void Execute(object area, TimeSpan span)
+        {
+            if (RepeatCount >= MaxRepeatCount)
+            {
+                Abort = true;
+                return;
+            }
+
+            RepeatCount++;
+            RepeatWaitedTime += span;
+            if (RepeatWaitedTime >= RepeatSpan)
+            {
+                base.Init();
+                RepeatWaitedTime = TimeSpan.Zero;
+            }
+
+            base.Execute(area, span);
         }
     }
 
@@ -94,6 +187,7 @@ namespace Test
         public ICollection<GRA> GRAs { get; set; }
         public bool Exit { get; set; }
         public object Area { get; set; }
+        public Thread ThreadDT { get; set; }
 
         public DigitalTwin(object area)
         {
@@ -102,6 +196,17 @@ namespace Test
         }
 
         public void Run()
+        {
+            ThreadDT = new Thread(ProcessGRAs);
+            ThreadDT.Start();
+        }
+
+        public void Terminate()
+        {
+            Exit = true;
+        }
+
+        void ProcessGRAs()
         {
             DateTime lastTime = new DateTime();
             DateTime curTime = new DateTime();
@@ -114,15 +219,7 @@ namespace Test
 
                 foreach (GRA gra in GRAs)
                 {
-                    if (!gra.IsGoalAccomplished)
-                    {
-                        gra.WaitedTime += span;
-                        if (gra.WaitedTime >= gra.Span)
-                        {
-                            gra.Execute(Area);
-                            gra.WaitedTime = TimeSpan.Zero;
-                        }
-                    }
+                    gra.Execute(Area, span);
                 }
 
                 lastTime = curTime;
@@ -182,12 +279,14 @@ namespace Test
             Domain domain = new Domain();
             DigitalTwin dt = new DigitalTwin(domain);
 
-            GRA gra = new GRA(DomainGoals.GF_FindLxj, null,
-                DomainActions.AF_InputStr, new TimeSpan(0,0,10));
+            GRA gra = new GRA_R(DomainGoals.GF_FindLxj, null,
+                DomainActions.AF_InputStr, new TimeSpan(0,0,10), new TimeSpan(0,1,0));
             dt.GRAs.Add(gra);
             dt.Run();
 
-            Console.WriteLine("OK");
+            Thread.Sleep(1000*60);
+            dt.Terminate();
+            Console.WriteLine("Exit");
             Console.ReadLine();
         }
     }
